@@ -5,6 +5,10 @@ from typing import Union, Tuple
 
 import gym
 import numpy as np
+import datetime
+import plotly.figure_factory as ff
+import plotly.express as px
+from plotly.offline import plot
 from gym.core import ActType, ObsType
 from matplotlib import animation
 from matplotlib.animation import FFMpegWriter
@@ -108,6 +112,10 @@ class JobEnv(gym.Env):
         obs = self.get_obs(process_time_channel, schedule_finish_channel, machine_utilization_channel)
         reward = self.compute_reward(process_time_channel)
         done = np.sum(process_time_channel) == 0
+
+        if done:
+            self.draw_gantt()
+
         self.add_data_for_visualization(
             process_time_channel, schedule_finish_channel, machine_utilization_channel, i, j
         )
@@ -280,3 +288,41 @@ class JobEnv(gym.Env):
                 colors.append("#ffffff")
             cell_colors.append(colors)
         return cell_colors
+
+    def draw_gantt(self):
+        df = []
+        start_timestamp = datetime.datetime.now().timestamp()
+        # iterate through all jobs and their operations
+        for job in range(self.job_size):
+            j = 0
+            while j < self.machine_size:
+                # If the job does not have an operation on this machine, continue.
+                if self.initial_process_time_channel[job, j] == 0:
+                    j += 1
+                    continue
+
+                dict_op = dict()
+                dict_op["Resource"] = f"Job {job + 1}"
+                # calculate start and finish time of the operation
+                finish_time = start_timestamp + self.last_schedule_finish_channel[job, j]
+                start_time = finish_time - self.initial_process_time_channel[job, j]
+                # return the date corresponding to the timestamp
+                dict_op["Start"] = datetime.datetime.fromtimestamp(start_time)
+                dict_op["Finish"] = datetime.datetime.fromtimestamp(finish_time)
+                # retrieve the machine number corresponding to (job, operation j)
+                dict_op["Task"] = f"Machine {self.job_machine_nos[job, j] + 1}"
+                df.append(dict_op)
+                j += 1
+
+        # sort the list of dictionary by job number and machine number
+        df.sort(key=lambda k : (int(k['Resource'].split(' ')[1]), int(k['Task'].split(' ')[1]))) 
+        # create additional colors since default colors of Plotly are limited to 10 different colors
+        #r = lambda : np.random.randint(0,255)
+        #colors = ['#%02X%02X%02X' % (r(), r(), r())]
+        #for _ in range(1, len(df) + 1):
+        #    colors.append('#%02X%02X%02X' % (r(), r(), r()))
+        colors = px.colors.qualitative.Prism    
+
+        fig = ff.create_gantt(df, colors=colors, index_col='Resource', show_colorbar=True, group_tasks=True, showgrid_x=True, title='Job Shop Scheduling')
+
+        plot(fig, filename='RL_job_shop_scheduling.html')
