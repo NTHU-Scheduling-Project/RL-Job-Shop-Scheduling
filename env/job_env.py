@@ -77,10 +77,29 @@ class JobEnv(gym.Env):
         self.history_schedule_finish_channel = []
         self.history_machine_utilization_channel = []
 
+        setup_time_arr = [
+            [5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+            [5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+            [5, 6, 7, 8, 9, 10, 11, 12, 13, 14],
+            [10, 11, 10, 15, 9, 20, 15, 12, 17, 20],
+            [10, 11, 10, 15, 9, 20, 15, 12, 17, 20],
+            [10, 11, 10, 15, 9, 20, 15, 12, 17, 20],
+            [7, 14, 12, 13, 14, 14, 14, 14, 14, 17],
+            [7, 14, 12, 13, 14, 14, 14, 14, 14, 17],
+            [7, 14, 12, 13, 14, 14, 14, 14, 14, 17],
+            [7, 14, 12, 13, 14, 14, 14, 14, 14, 17]
+        ]
+        self.job_machine_setup_time = np.array(setup_time_arr)
+        
+        for i in range(self.job_size):
+            for j in range(self.machine_size):
+                self.initial_process_time_channel[i, j] += self.job_machine_setup_time[i, self.job_machine_nos[i, j]]
+        self.max_process_time = np.max(self.instance.processing_time)
+
     def reset(self, **kwargs) -> Union[ObsType, Tuple[ObsType, dict]]:
         self.init_data(**kwargs)
         # 处理时间
-        process_time_channel = copy.deepcopy(self.instance.processing_time)
+        process_time_channel = copy.deepcopy(self.initial_process_time_channel)
         # 调度完成时
         schedule_finish_channel = np.zeros_like(process_time_channel)
         # 机器利用率
@@ -305,17 +324,29 @@ class JobEnv(gym.Env):
                 dict_op["Resource"] = f"Job {job + 1}"
                 # calculate start and finish time of the operation
                 finish_time = start_timestamp + self.last_schedule_finish_channel[job, j]
-                start_time = finish_time - self.initial_process_time_channel[job, j]
+                start_time = finish_time - self.initial_process_time_channel[job, j] + self.job_machine_setup_time[job, self.job_machine_nos[job, j]]
                 # return the date corresponding to the timestamp
                 dict_op["Start"] = datetime.datetime.fromtimestamp(start_time)
                 dict_op["Finish"] = datetime.datetime.fromtimestamp(finish_time)
                 # retrieve the machine number corresponding to (job, operation j)
                 dict_op["Task"] = f"Machine {self.job_machine_nos[job, j] + 1}"
                 df.append(dict_op)
+
+                dict_op = dict()
+                dict_op["Resource"] = "Setup"
+                finish_time = start_time
+                start_time = finish_time - self.job_machine_setup_time[job, self.job_machine_nos[job, j]]
+                # return the date corresponding to the timestamp
+                dict_op["Start"] = datetime.datetime.fromtimestamp(start_time)
+                dict_op["Finish"] = datetime.datetime.fromtimestamp(finish_time)
+                # retrieve the machine number corresponding to (job, operation j)
+                dict_op["Task"] = f"Machine {self.job_machine_nos[job, j] + 1}"
+                df.append(dict_op)
+
                 j += 1
 
         # sort the list of dictionary by job number and machine number
-        df.sort(key=lambda k : (int(k['Resource'].split(' ')[1]), int(k['Task'].split(' ')[1]))) 
+        df.sort(key=lambda k : int(k['Task'].split(' ')[1])) 
         # create additional colors since default colors of Plotly are limited to 10 different colors
         #r = lambda : np.random.randint(0,255)
         #colors = ['#%02X%02X%02X' % (r(), r(), r())]
